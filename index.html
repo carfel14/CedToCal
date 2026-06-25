@@ -768,9 +768,7 @@
           $("#addBtn").disabled = false;
           return;
         }
-        log(
-          `Agregando ${idxs.length} cumpleaños a "${calendarName()}" (hasta ${CONCURRENCY} a la vez)...`,
-        );
+        log(`Agregando ${idxs.length} cumpleaños a "${calendarName()}"`);
 
         // Pool de trabajadores: cada uno toma el siguiente índice hasta agotarlos.
         // cursor++ es síncrono, así que no hay condición de carrera entre awaits.
