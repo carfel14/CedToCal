@@ -1,0 +1,825 @@
+<!doctype html>
+<html lang="es" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>CedToCal</title>
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css"
+    />
+    <style>
+      /* Colores semánticos inyectados por JS */
+      .ok {
+        color: var(--pico-color-green-450, #2a9d63);
+      }
+      .err {
+        color: var(--pico-color-red-450, #d24317);
+      }
+      .warnc {
+        color: var(--pico-color-amber-450, #b3801f);
+      }
+      .muted {
+        color: var(--pico-muted-color);
+      }
+      .status {
+        font-size: 0.85rem;
+      }
+      #log {
+        white-space: pre-wrap;
+        font-family: var(--pico-font-family-monospace);
+        font-size: 0.8rem;
+      }
+
+      /* Tarjetas sin divisor interno: título + ayuda directos */
+      .card-title {
+        font-size: 1.15rem;
+        margin: 0 0 0.25rem;
+      }
+      .helper {
+        margin: 0 0 0.25rem;
+        color: var(--pico-muted-color);
+        font-size: 0.9rem;
+      }
+
+      .toolbar {
+        display: flex;
+        gap: 1rem;
+        align-items: center;
+        flex-wrap: wrap;
+      }
+      .toolbar .grow {
+        flex: 1;
+      }
+      .scroll {
+        max-height: 440px;
+        overflow: auto;
+      }
+
+      /* Nota de privacidad bajo el encabezado (callout) */
+      .privacy {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.7rem;
+        margin: 1.25rem 0 1.5rem;
+        padding: 0.85rem 1rem;
+        border: 1px solid var(--pico-form-element-border-color);
+        border-left: 4px solid var(--pico-primary);
+        border-radius: var(--pico-border-radius);
+        background: var(--pico-card-sectioning-background-color);
+        font-size: 0.9rem;
+        line-height: 1.45;
+      }
+      .privacy svg {
+        flex-shrink: 0;
+        width: 1.3rem;
+        height: 1.3rem;
+        margin-top: 0.05rem;
+        color: var(--pico-primary);
+      }
+      .privacy strong {
+        color: var(--pico-primary);
+      }
+
+      /* Zona de carga (drag & drop) */
+      .dropzone {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 0.5rem;
+        border: 2px dashed var(--pico-form-element-border-color);
+        border-radius: var(--pico-border-radius);
+        padding: 2.5rem 1.5rem;
+        margin-top: 1rem;
+        text-align: center;
+        cursor: pointer;
+        transition:
+          border-color 0.15s,
+          background-color 0.15s;
+      }
+      .dropzone:hover,
+      .dropzone.drag {
+        border-color: var(--pico-primary);
+        background: var(--pico-card-sectioning-background-color);
+      }
+      .dropzone svg {
+        color: var(--pico-muted-color);
+      }
+      #fileName {
+        font-weight: 600;
+        color: var(--pico-primary);
+      }
+
+      /* Botón de Google */
+      #signin {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+
+      /* Tarjeta bloqueada hasta autenticar */
+      .step-disabled {
+        opacity: 0.55;
+        pointer-events: none;
+      }
+
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        margin: -1px;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
+      }
+    </style>
+  </head>
+
+  <body>
+    <main class="container">
+      <!-- ===== Encabezado ===== -->
+      <hgroup>
+        <h1 style="margin-bottom: 0.5rem">
+          Cédula a Cumpleaños en Google Calendar
+        </h1>
+        <p>
+          Sube tu archivo Excel/CSV, extrae las fechas de nacimiento a partir de
+          las
+          <a
+            style="text-decoration: none"
+            href="https://es.wikipedia.org/wiki/Documento_de_identidad"
+            >cédulas nicaragüenses</a
+          >
+          y agenda tus recordatorios automáticamente en Google Calendar.
+        </p>
+      </hgroup>
+      <aside class="privacy" role="note">
+        <svg
+          fill="none"
+          viewBox="0 0 24 24"
+          stroke-width="1.8"
+          stroke="currentColor"
+          aria-hidden="true"
+        >
+          <path
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            d="M16.5 10.5V6.75a4.5 4.5 0 1 0-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 0 0 2.25-2.25v-6.75a2.25 2.25 0 0 0-2.25-2.25H6.75a2.25 2.25 0 0 0-2.25 2.25v6.75a2.25 2.25 0 0 0 2.25 2.25Z"
+          />
+        </svg>
+        <span>
+          <strong>Privacidad:</strong> tu archivo se procesa en tu propio
+          dispositivo. Lo único que sale a internet son los cumpleaños que tú
+          decides agregar a tu calendario.
+        </span>
+      </aside>
+
+      <!-- ===== Aviso si falta la configuración ===== -->
+      <article
+        id="cfgMissing"
+        hidden
+        style="border-color: var(--pico-color-red-450, #d24317)"
+      >
+        <strong>⚠️ Falta configurar el ID de cliente</strong>
+        <p>
+          No se encontró el <code>GOOGLE_CLIENT_ID</code>. Copia
+          <code>config.example.js</code> a <code>config.js</code>, pega tu ID y
+          sirve la página por <code>http://</code> (p. ej.
+          <code>python -m http.server 8000</code>).
+        </p>
+        <details>
+          <summary>
+            Cómo obtener el ID de cliente (una sola vez, gratis)
+          </summary>
+          <ol>
+            <li>
+              Ve a <code>console.cloud.google.com</code> → crea un proyecto.
+            </li>
+            <li>
+              <b>APIs y servicios → Biblioteca</b> → habilita
+              <b>Google Calendar API</b>.
+            </li>
+            <li>
+              <b>Pantalla de consentimiento de OAuth</b> → Externo → agrégate
+              como <b>usuario de prueba</b>.
+            </li>
+            <li>
+              <b
+                >Credenciales → Crear credenciales → ID de cliente de OAuth →
+                Aplicación web</b
+              >.
+            </li>
+            <li>
+              En <b>Orígenes autorizados de JavaScript</b> agrega
+              <code>http://localhost:8000</code>.
+            </li>
+            <li>
+              Pega el ID en <code>config.js</code> (copiado de
+              <code>config.example.js</code>).
+            </li>
+          </ol>
+        </details>
+      </article>
+
+      <!-- ===== Tarjeta 1: Autenticación ===== -->
+      <article>
+        <h2 class="card-title">1. Inicia sesión con Google</h2>
+        <p class="helper">
+          Para poder agendar los eventos directamente en tu calendario anual.
+        </p>
+        <div class="toolbar">
+          <button id="signin" disabled>
+            <svg width="18" height="18" viewBox="0 0 24 24" aria-hidden="true">
+              <path
+                fill="#4285F4"
+                d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1Z"
+              />
+              <path
+                fill="#34A853"
+                d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84A11 11 0 0 0 12 23Z"
+              />
+              <path
+                fill="#FBBC05"
+                d="M5.84 14.1a6.6 6.6 0 0 1 0-4.2V7.06H2.18a11 11 0 0 0 0 9.88l3.66-2.84Z"
+              />
+              <path
+                fill="#EA4335"
+                d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1A11 11 0 0 0 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52Z"
+              />
+            </svg>
+            Iniciar sesión con Google
+          </button>
+          <span id="authStatus" role="status" aria-live="polite"></span>
+        </div>
+      </article>
+
+      <!-- ===== Tarjeta 2: Subir archivo (bloqueada hasta autenticar) ===== -->
+      <article id="step2" aria-disabled="true">
+        <h2 class="card-title">2. Sube tu archivo</h2>
+        <p class="helper">
+          Selecciona tu documento de Excel o CSV con los nombres y cédulas
+          nicaragüenses.
+        </p>
+        <label id="dropzone" for="file" class="dropzone">
+          <svg
+            width="36"
+            height="36"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke-width="1.5"
+            stroke="currentColor"
+            aria-hidden="true"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5"
+            />
+          </svg>
+          <span>
+            Arrastra tu archivo aquí o <strong>haz clic para buscar</strong>
+          </span>
+          <small class="muted">CSV, XLSX, XLSM, XLS o TSV</small>
+          <small id="fileName" hidden></small>
+        </label>
+        <input
+          type="file"
+          id="file"
+          accept=".csv,.xlsx,.xlsm,.xls,.tsv"
+          class="sr-only"
+        />
+      </article>
+
+      <!-- ===== Tarjeta 3: Revisión (bloqueada hasta subir un archivo válido) ===== -->
+      <article id="previewCard" aria-disabled="true">
+        <h2 class="card-title">3. Revisa y agrega</h2>
+        <label for="calName">
+          Calendario de destino (se crea si no existe)
+          <input
+            type="text"
+            id="calName"
+            value="Cumpleaños"
+            placeholder="Cumpleaños"
+          />
+        </label>
+        <div class="toolbar" style="margin-bottom: 1rem">
+          <span id="counts" role="status" aria-live="polite"></span>
+          <span class="grow"></span>
+          <label>
+            <input type="checkbox" id="yearly" role="switch" checked /> Repetir
+            cada año
+          </label>
+          <label>
+            <input type="checkbox" id="dedup" role="switch" checked /> Evitar
+            duplicados
+          </label>
+          <button id="addBtn" disabled>Agregar al calendario</button>
+        </div>
+        <div class="scroll">
+          <table id="tbl">
+            <thead>
+              <tr>
+                <th>
+                  <input
+                    type="checkbox"
+                    id="checkAll"
+                    checked
+                    aria-label="Seleccionar todos"
+                  />
+                </th>
+                <th>Nombre</th>
+                <th>Cédula</th>
+                <th>Cumpleaños</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </article>
+
+      <article id="logCard" hidden>
+        <strong>Registro</strong>
+        <div
+          id="log"
+          role="log"
+          aria-live="polite"
+          aria-label="Registro de actividad"
+        ></div>
+      </article>
+    </main>
+
+    <!-- Tu Client ID: copia config.example.js a config.js (ignorado por git) -->
+    <script src="config.js"></script>
+
+    <!-- Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+
+    <script>
+      const SCOPES = "https://www.googleapis.com/auth/calendar";
+      const CONCURRENCY = 6; // inserciones simultáneas (evita ráfagas que disparan el límite de Google)
+      const $ = (s) => document.querySelector(s);
+      const calendarName = () => $("#calName").value.trim() || "Cumpleaños";
+      let calendarId = null; // cache del id del calendario resuelto
+      let calendarFor = null; // nombre para el que se resolvió ese id
+      let accessToken = null;
+      let tokenClient = null;
+      let rows = []; // {name, cedula, date: Date|null, error, statusEl}
+
+      function log(msg) {
+        $("#logCard").hidden = false;
+        $("#log").textContent += msg + "\n";
+        $("#log").scrollTop = $("#log").scrollHeight;
+      }
+
+      // Habilita/bloquea la tarjeta 2 según el estado de sesión.
+      function setStep2Enabled(on) {
+        $("#step2").classList.toggle("step-disabled", !on);
+        $("#step2").setAttribute("aria-disabled", on ? "false" : "true");
+      }
+
+      // Habilita/bloquea la tarjeta 3 según si hay un archivo válido cargado.
+      function setStep3Enabled(on) {
+        $("#previewCard").classList.toggle("step-disabled", !on);
+        $("#previewCard").setAttribute("aria-disabled", on ? "false" : "true");
+      }
+
+      /* ---------- Config (desde config.js) ---------- */
+      const CLIENT_ID = (window.GOOGLE_CLIENT_ID || "").trim();
+
+      /* ---------- Auth ---------- */
+      function initTokenClient() {
+        const clientId = CLIENT_ID;
+        if (!clientId) {
+          $("#cfgMissing").hidden = false;
+          $("#signin").disabled = true;
+          return;
+        }
+        if (!window.google?.accounts?.oauth2) {
+          $("#signin").disabled = true;
+          return;
+        }
+        tokenClient = google.accounts.oauth2.initTokenClient({
+          client_id: clientId,
+          scope: SCOPES,
+          callback: (resp) => {
+            if (resp.error) {
+              $("#authStatus").innerHTML =
+                '<small class="err">Error de autenticación: ' +
+                resp.error +
+                "</small>";
+              log("Error de autenticación: " + JSON.stringify(resp));
+              return;
+            }
+            accessToken = resp.access_token;
+            $("#authStatus").innerHTML =
+              '<small class="ok">✓ Sesión iniciada</small>';
+            setStep2Enabled(true);
+            refreshAddBtn();
+          },
+        });
+        $("#signin").disabled = false;
+      }
+      $("#signin").addEventListener("click", () => {
+        if (!tokenClient) initTokenClient();
+        if (tokenClient) tokenClient.requestAccessToken({ prompt: "consent" });
+      });
+
+      /* ---------- Cédula → birthday ---------- */
+      function parseCedula(raw) {
+        if (raw == null) return { date: null, error: "vacío" };
+        const digits = String(raw).replace(/[^0-9]/g, "");
+        if (digits.length < 9) return { date: null, error: "muy corta" };
+        const dd = parseInt(digits.slice(3, 5), 10);
+        const mm = parseInt(digits.slice(5, 7), 10);
+        const yy = parseInt(digits.slice(7, 9), 10);
+        if (mm < 1 || mm > 12)
+          return { date: null, error: "mes inválido " + digits.slice(5, 7) };
+        if (dd < 1 || dd > 31)
+          return { date: null, error: "día inválido " + digits.slice(3, 5) };
+        const currentYY = new Date().getFullYear() % 100;
+        const year = yy <= currentYY ? 2000 + yy : 1900 + yy;
+        const d = new Date(year, mm - 1, dd);
+        if (d.getMonth() !== mm - 1 || d.getDate() !== dd)
+          return { date: null, error: "fecha inválida" };
+        return { date: d, error: null };
+      }
+
+      function fmtDate(d) {
+        const y = d.getFullYear();
+        const m = String(d.getMonth() + 1).padStart(2, "0");
+        const day = String(d.getDate()).padStart(2, "0");
+        return `${y}-${m}-${day}`;
+      }
+      function nextDay(d) {
+        const n = new Date(d);
+        n.setDate(n.getDate() + 1);
+        return n;
+      }
+      function prettyBday(d) {
+        return d.toLocaleDateString("es", {
+          day: "numeric",
+          month: "long",
+          year: "numeric",
+        });
+      }
+
+      /* ---------- File parsing ---------- */
+      function findCol(headers, candidates) {
+        const norm = (s) =>
+          String(s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+        const h = headers.map(norm);
+        for (const c of candidates) {
+          const i = h.findIndex((x) => x === c || x.includes(c));
+          if (i !== -1) return i;
+        }
+        return -1;
+      }
+
+      function ingest(records) {
+        if (!records.length) {
+          log("No se encontraron filas.");
+          return;
+        }
+        const headers = records[0].map((x) => (x == null ? "" : String(x)));
+        const nameIdx = findCol(headers, [
+          "name",
+          "nombre",
+          "nombres",
+          "fullname",
+          "nombre completo",
+        ]);
+        const cedIdx = findCol(headers, [
+          "cedula",
+          "cédula",
+          "id",
+          "identidad",
+          "documento",
+          "dni",
+        ]);
+        if (nameIdx === -1 || cedIdx === -1) {
+          log(
+            "No se pudieron detectar las columnas. Encabezados encontrados: " +
+              headers.join(" | "),
+          );
+          alert(
+            "No se encontraron las columnas de 'nombre' y 'cédula'. Verifica que la primera fila tenga encabezados.",
+          );
+          return;
+        }
+        rows = [];
+        for (let r = 1; r < records.length; r++) {
+          const rec = records[r];
+          if (!rec || rec.every((c) => c == null || String(c).trim() === ""))
+            continue;
+          const name = (rec[nameIdx] ?? "").toString().trim();
+          const cedula = (rec[cedIdx] ?? "").toString().trim();
+          if (!name && !cedula) continue;
+          const { date, error } = parseCedula(cedula);
+          rows.push({ name, cedula, date, error });
+        }
+        renderTable();
+      }
+
+      // Lee un archivo (desde el input o desde drag & drop) y lo procesa.
+      function readFile(file) {
+        if (!file) return;
+        $("#fileName").textContent = "📄 " + file.name;
+        $("#fileName").hidden = false;
+        const ext = file.name.split(".").pop().toLowerCase();
+        if (ext === "csv" || ext === "tsv") {
+          Papa.parse(file, {
+            complete: (res) => ingest(res.data),
+            skipEmptyLines: true,
+          });
+        } else {
+          const reader = new FileReader();
+          reader.onload = (ev) => {
+            const wb = XLSX.read(ev.target.result, { type: "array" });
+            const ws = wb.Sheets[wb.SheetNames[0]];
+            const data = XLSX.utils.sheet_to_json(ws, {
+              header: 1,
+              raw: false,
+              defval: "",
+            });
+            ingest(data);
+          };
+          reader.readAsArrayBuffer(file);
+        }
+      }
+      $("#file").addEventListener("change", (e) => readFile(e.target.files[0]));
+
+      // Drag & drop sobre la zona de carga.
+      const dz = $("#dropzone");
+      ["dragenter", "dragover"].forEach((ev) =>
+        dz.addEventListener(ev, (e) => {
+          e.preventDefault();
+          dz.classList.add("drag");
+        }),
+      );
+      ["dragleave", "dragend", "drop"].forEach((ev) =>
+        dz.addEventListener(ev, (e) => {
+          e.preventDefault();
+          dz.classList.remove("drag");
+        }),
+      );
+      dz.addEventListener("drop", (e) => {
+        const file = e.dataTransfer?.files?.[0];
+        if (file) readFile(file);
+      });
+
+      /* ---------- Table ---------- */
+      function renderTable() {
+        const tbody = $("#tbl tbody");
+        tbody.innerHTML = "";
+        let valid = 0,
+          invalid = 0;
+        rows.forEach((row, i) => {
+          const tr = document.createElement("tr");
+          const ok = !!row.date;
+          if (ok) valid++;
+          else invalid++;
+          tr.innerHTML = `
+      <td><input type="checkbox" class="sel" data-i="${i}" aria-label="Seleccionar ${escapeHtml(row.name) || "fila " + (i + 1)}" ${ok ? "checked" : ""} ${ok ? "" : "disabled"}></td>
+      <td>${escapeHtml(row.name) || "—"}</td>
+      <td><code>${escapeHtml(row.cedula) || "—"}</code></td>
+      <td>${ok ? prettyBday(row.date) : "—"}</td>
+      <td><span class="status">${ok ? '<span class="muted">listo</span>' : '<span class="err">' + escapeHtml(row.error) + "</span>"}</span></td>`;
+          tbody.appendChild(tr);
+          row.statusEl = tr.querySelector(".status");
+        });
+        $("#counts").innerHTML =
+          `<small>${valid} válidas · ${invalid} inválidas · ${rows.length} en total</small>`;
+        setStep3Enabled(valid > 0);
+        refreshAddBtn();
+      }
+
+      function escapeHtml(s) {
+        return String(s).replace(
+          /[&<>"']/g,
+          (c) =>
+            ({
+              "&": "&amp;",
+              "<": "&lt;",
+              ">": "&gt;",
+              '"': "&quot;",
+              "'": "&#39;",
+            })[c],
+        );
+      }
+
+      $("#checkAll").addEventListener("change", (e) => {
+        document
+          .querySelectorAll(".sel:not(:disabled)")
+          .forEach((c) => (c.checked = e.target.checked));
+      });
+
+      function selectedIndexes() {
+        return [...document.querySelectorAll(".sel:checked")].map((c) =>
+          parseInt(c.dataset.i, 10),
+        );
+      }
+      function refreshAddBtn() {
+        $("#addBtn").disabled = !(accessToken && rows.some((r) => r.date));
+      }
+
+      /* ---------- Calendar ---------- */
+      async function gcal(path, opts = {}) {
+        const res = await fetch(
+          "https://www.googleapis.com/calendar/v3" + path,
+          {
+            ...opts,
+            headers: {
+              Authorization: "Bearer " + accessToken,
+              "Content-Type": "application/json",
+              ...(opts.headers || {}),
+            },
+          },
+        );
+        if (!res.ok) {
+          const err = new Error(res.status + " " + (await res.text()));
+          err.status = res.status;
+          throw err;
+        }
+        return res.json();
+      }
+
+      // Busca el calendario con el nombre indicado; si no existe, lo crea. Devuelve su id.
+      async function getOrCreateCalendar() {
+        const name = calendarName();
+        if (calendarId && calendarFor === name) return calendarId;
+        const list = await gcal("/users/me/calendarList");
+        const found = (list.items || []).find((c) => c.summary === name);
+        if (found) {
+          calendarId = found.id;
+          log(`Usando calendario existente "${name}".`);
+        } else {
+          const created = await gcal("/calendars", {
+            method: "POST",
+            body: JSON.stringify({
+              summary: name,
+              description: "Cumpleaños importados desde cédulas.",
+            }),
+          });
+          calendarId = created.id;
+          log(`Calendario "${name}" creado.`);
+        }
+        calendarFor = name;
+        return calendarId;
+      }
+
+      /* ---------- Duplicate detection (ID determinista por hash) ---------- */
+      const cedulaDigits = (s) => String(s || "").replace(/[^0-9]/g, "");
+
+      // SHA-256 en hexadecimal. Requiere contexto seguro (https o localhost).
+      async function sha256hex(str) {
+        const buf = await crypto.subtle.digest(
+          "SHA-256",
+          new TextEncoder().encode(str),
+        );
+        return [...new Uint8Array(buf)]
+          .map((b) => b.toString(16).padStart(2, "0"))
+          .join("");
+      }
+
+      // ID de evento determinista. Los caracteres hex (0-9a-f) son válidos como
+      // ID de Google Calendar (base32hex). La cédula nunca se guarda en claro:
+      // solo viaja su hash, así que reinsertar la misma persona produce un 409.
+      async function eventIdFor(row) {
+        const key =
+          cedulaDigits(row.cedula) || row.name + "|" + fmtDate(row.date);
+        return "bd" + (await sha256hex(key));
+      }
+
+      /* ---------- Create events ---------- */
+      async function createEvent(row, yearly, dedup) {
+        const body = {
+          summary: "🎂 " + (row.name || "Cumpleaños"),
+          start: { date: fmtDate(row.date) },
+          end: { date: fmtDate(nextDay(row.date)) },
+          transparency: "transparent",
+          visibility: "private",
+          reminders: {
+            useDefault: false,
+            overrides: [{ method: "popup", minutes: 9 * 60 }],
+          },
+          extendedProperties: { private: { src: "bday-adder" } },
+        };
+        if (yearly) body.recurrence = ["RRULE:FREQ=YEARLY"];
+        if (dedup) body.id = await eventIdFor(row); // Google rechaza duplicados con 409
+
+        const path = `/calendars/${encodeURIComponent(calendarId)}/events`;
+        // Reintenta solo errores transitorios (límite de cuota / servidor). El 409 de
+        // un duplicado NO se reintenta: se propaga para marcar la fila como "ya existe".
+        for (let attempt = 0; ; attempt++) {
+          try {
+            return await gcal(path, {
+              method: "POST",
+              body: JSON.stringify(body),
+            });
+          } catch (err) {
+            const transient = [403, 429, 500, 503].includes(err.status);
+            if (!transient || attempt >= 4) throw err;
+            await new Promise((r) =>
+              setTimeout(r, 500 * 2 ** attempt + Math.random() * 250),
+            );
+          }
+        }
+      }
+
+      $("#addBtn").addEventListener("click", async () => {
+        if (!accessToken) {
+          alert("Inicia sesión primero.");
+          return;
+        }
+        const yearly = $("#yearly").checked;
+        let dedup = $("#dedup").checked;
+        const idxs = selectedIndexes();
+        if (!idxs.length) {
+          alert("No hay nada seleccionado.");
+          return;
+        }
+        if (dedup && !(window.crypto && crypto.subtle)) {
+          log(
+            "Web Crypto no disponible (necesita https o localhost); se desactiva la deduplicación.",
+          );
+          dedup = false;
+        }
+        $("#addBtn").disabled = true;
+        $("#addBtn").setAttribute("aria-busy", "true");
+        let done = 0,
+          failed = 0,
+          skipped = 0;
+        try {
+          await getOrCreateCalendar();
+        } catch (err) {
+          log(
+            `No se pudo preparar el calendario "${calendarName()}": ${err.message}`,
+          );
+          alert(
+            `No se pudo crear/encontrar el calendario "${calendarName()}". Mira el registro.`,
+          );
+          $("#addBtn").removeAttribute("aria-busy");
+          $("#addBtn").disabled = false;
+          return;
+        }
+        log(
+          `Agregando ${idxs.length} cumpleaños a "${calendarName()}" (hasta ${CONCURRENCY} a la vez)...`,
+        );
+
+        // Pool de trabajadores: cada uno toma el siguiente índice hasta agotarlos.
+        // cursor++ es síncrono, así que no hay condición de carrera entre awaits.
+        let cursor = 0;
+        async function worker() {
+          while (cursor < idxs.length) {
+            const row = rows[idxs[cursor++]];
+            if (!row.date) continue;
+            row.statusEl.innerHTML = '<span class="warnc">agregando…</span>';
+            try {
+              const ev = await createEvent(row, yearly, dedup);
+              row.statusEl.innerHTML = `<a class="ok" href="${ev.htmlLink}" target="_blank">agregado ✓</a>`;
+              done++;
+            } catch (err) {
+              if (err.status === 409) {
+                // ID determinista ya existe → duplicado
+                row.statusEl.innerHTML =
+                  '<span class="muted">ya existe — omitido</span>';
+                skipped++;
+              } else {
+                row.statusEl.innerHTML = '<span class="err">falló</span>';
+                log(`✗ ${row.name}: ${err.message}`);
+                failed++;
+              }
+            }
+          }
+        }
+        await Promise.all(
+          Array.from({ length: Math.min(CONCURRENCY, idxs.length) }, worker),
+        );
+        log(
+          `Listo. ${done} agregados, ${skipped} omitidos, ${failed} fallidos.`,
+        );
+        $("#addBtn").removeAttribute("aria-busy");
+        $("#addBtn").disabled = false;
+      });
+
+      /* ---------- Boot ---------- */
+      window.addEventListener("load", () => {
+        setStep2Enabled(false);
+        setStep3Enabled(false);
+        if (!CLIENT_ID) $("#cfgMissing").hidden = false;
+        const t = setInterval(() => {
+          if (window.google?.accounts?.oauth2) {
+            clearInterval(t);
+            initTokenClient();
+          }
+        }, 200);
+      });
+    </script>
+  </body>
+</html>
